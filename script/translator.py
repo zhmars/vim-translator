@@ -37,6 +37,13 @@ else:
     from urllib.error import URLError
     from urllib.error import HTTPError
 
+if not is_py3:
+    from HTMLParser import HTMLParser
+elif sys.version_info[0] == 3 and sys.version_info[1] < 5:
+    #  removed in Python 3.5
+    from html.parser import HTMLParser
+else:
+    import html
 
 class Translation(object):
     translation = {"engine": "", "phonetic": "", "paraphrase": "", "explain": []}
@@ -154,6 +161,15 @@ class BasicTranslator(object):
         self._trans["explain"] = None  # 详细翻译
         return self._trans
 
+    def html_escape(self, string):
+        #  return string
+        #  https://stackoverflow.com/questions/2087370/decode-html-entities-in-python-string
+        if not is_py3 or (sys.version_info[0] == 3 and sys.version_info[1] < 5):
+            parser = HTMLParser()
+            return parser.unescape(string)
+        else:
+            return(html.unescape(string))
+
 
 class BaicizhanTranslator(BasicTranslator):
     def __init__(self, name="baicizhan"):
@@ -205,7 +221,7 @@ class BingTranslator(BasicTranslator):
         if not html:
             return ""
         m = re.findall(r'<span class="ht_attr" lang=".*?">\[(.*?)\] </span>', html)
-        return m[0].strip() if len(m) > 0 else ""
+        return self.html_escape(m[0].strip()) if len(m) > 0 else ""
 
     def get_explain(self, html):
         if not html:
