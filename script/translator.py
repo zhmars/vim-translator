@@ -10,6 +10,7 @@ import copy
 import json
 import argparse
 import codecs
+import collections
 
 if sys.version_info[0] < 3:
     is_py3 = False
@@ -317,13 +318,21 @@ class ICibaTranslator(BasicTranslator):
             self._trans["paraphrase"] = self.get_paraphrase(obj)
             self._trans["phonetic"] = self.get_phonetic(obj)
             self._trans["explain"] = self.get_explain(obj)
+            self._trans["tts"] = self.get_tts(obj)
         return self._trans
+
+    def get_tts(self, obj):
+        tts = obj.get('ph_am_mp3', '') if 'ph_am_mp3' in obj else obj.get('ph_am_mp3_bk', '')
+        if not tts:
+            tts = obj.get('ph_en_mp3', '') if 'ph_en_mp3' in obj else obj.get('ph_en_mp3_bk', '')
+        return tts if tts else obj.get('ph_tts_mp3_bk', '')
 
     def get_paraphrase(self, obj):
         return obj["parts"][0]["means"][0]
 
     def get_phonetic(self, obj):
-        return obj["ph_en"] if "ph_en" in obj else ""
+        #  return obj["ph_en"] if "ph_en" in obj else ""
+        return obj['ph_am'] if obj.get('ph_am', '') else obj.get('ph_en', '')
 
     def get_explain(self, obj):
         parts = obj["parts"]
@@ -505,6 +514,37 @@ class SdcvShell(BasicTranslator):
         return self._trans
 
 
+class QXTranslator(BasicTranslator):
+    def __init__(self, name="qx(wubi)"):
+        self.url = "http://m.4qx.net/m/wubi_results.php"
+        super(QXTranslator, self).__init__(name)
+
+    def translate(self, sl, tl, text, options=None):
+        text = text if is_py3 else text.decode('utf-8')
+        if re.match("^[a-zA-Z0-9]+.*", text):
+            return
+        req = {}
+        req["wubi_key"] = text[:6] if len(text) > 6 else text
+        resp = self.http_post(self.url, req)
+        if resp:
+            self._trans["phonetic"] = self.get_phonetic(resp)
+            self._trans["explain"] = self.get_explain(resp)
+            return self._trans
+        else:
+            return
+
+    def get_phonetic(self, html):
+        return ''
+
+    def get_explain(self, html):
+        html = html if is_py3 else html.encode('utf-8')
+        m1 = re.findall(r'编码查询：<a href="dictionary_results.php\?dictionary_key=.*?">(.*?)</a>', html)
+        m2 = re.findall(r'全码：<span>(.*?)</span>', html)
+        explains = []
+        explains.extend(' '.join(item) for item in zip(m1, m2))
+        return explains
+
+
 ENGINES = {
     "baicizhan": BaicizhanTranslator,
     "bing": BingTranslator,
@@ -514,6 +554,7 @@ ENGINES = {
     "sdcv": SdcvShell,
     "trans": TranslateShell,
     "youdao": YoudaoTranslator,
+    "qx": QXTranslator,
 }
 
 
@@ -525,6 +566,7 @@ def main():
     parser.add_argument("--source_lang", required=True)
     parser.add_argument("--proxy", required=False)
     parser.add_argument("--options", type=str, default=None, required=False)
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
     text = args.text.strip("'")
@@ -543,10 +585,13 @@ def main():
     translation["status"] = 1
     translation["results"] = []
 
+    results = collections.OrderedDict()
+
     def runner(translator):
+        results[translator._name] = {}
         res = translator.translate(from_lang, to_lang, text, options)
         if res:
-            translation["results"].append(copy.deepcopy(res))
+            results[translator._name] = copy.deepcopy(res)
         else:
             translation["status"] = 0
 
@@ -566,7 +611,15 @@ def main():
     list(map(lambda x: x.start(), threads))
     list(map(lambda x: x.join(), threads))
 
-    sys.stdout.write(json.dumps(translation))
+    for key in results:
+        if results[key]:
+            translation["results"].append(results[key])
+
+    if args.debug:
+        #  python translator.py --text 'intentional' --engines bing iciba --target_lang zh --source_lang auto --debug
+        print(json.dumps(translation, indent=2, ensure_ascii=False))
+    else:
+        sys.stdout.write(json.dumps(translation))
 
 
 if __name__ == "__main__":

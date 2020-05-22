@@ -14,8 +14,68 @@ elseif has('textprop') && has('patch-8.1.1522')
   let s:wintype = 'popup'
 endif
 
+let s:player = get(g:, 'translator_default_player', '')
+
+function! translator#ui#find_player() abort
+  let s:player = get(g:, 'translator_default_player', '')
+  if !empty(s:player) | return | endif
+  let players = [
+    \ 'mpv --quiet',
+    \ 'mpg123 -q',
+    \ ]
+  for player in players
+    let player_path = exepath(split(player)[0])
+    if !empty(player_path)
+      let s:player = player
+      break
+    endif
+  endfor
+endfunction
+
+function! translator#ui#play(translations) abort
+  if !get(g:, 'translator_tts_enable', 0) | return | endif
+  call translator#ui#find_player()
+
+  let tts_url = ''
+  for t in a:translations['results']
+    if has_key(t, 'tts')
+      let tts_url = t.tts
+      break
+    endif
+  endfor
+  if empty(tts_url) | return | endif
+
+  let cmd = s:player . ' ' . tts_url
+  if has('nvim')
+    function! s:on_stdout_nvim(channel_id, data, name) abort
+    endfunction
+    function! s:on_exit_nvim(job_id, exit_code, event) abort
+      if a:exit_code ==# 0 | return | endif
+      call translator#util#show_msg('TTS failed to play.', 'error')
+    endfunction
+    call jobstart(cmd, {
+      \ 'on_stdout': function('s:on_stdout_nvim'),
+      \ 'on_stderr': function('s:on_stdout_nvim'),
+      \ 'on_exit': function('s:on_exit_nvim')
+      \ })
+  else
+    " TODO: better way to handle error
+    function! s:on_stdout_vim(event, channel, msg) abort
+      if a:event !=# 'stderr' | return | endif
+      call translator#util#show_msg('TTS failed to play.', 'error')
+    endfunction
+    let job = job_start(cmd, {
+      \ 'out_cb': function('s:on_stdout_vim', ['stdout']),
+      \ 'err_cb': function('s:on_stdout_vim', ['stderr']),
+      \ 'out_mode': 'raw',
+      \ 'err_mode': 'raw',
+      \ })
+  endif
+endfunction
 
 function! translator#ui#window(translations) abort
+  call translator#ui#play(a:translations)
+
   let linelist = translator#util#build_lines(a:translations)
   let max_width = g:translator_window_max_width
   if type(max_width) == v:t_float | let max_width = max_width * &columns | endif
@@ -134,6 +194,8 @@ endfunction
 
 
 function! translator#ui#echo(translations) abort
+  call translator#ui#play(a:translations)
+
   let phonetic = ''
   let paraphrase = ''
   let explain = ''
