@@ -6,7 +6,7 @@
 
 scriptencoding utf-8
 
-if g:translator_window_type == 'preview'
+if g:translator_window_type ==# 'preview'
   let s:wintype = 'preview'
 elseif has('nvim') && exists('*nvim_win_set_config')
   let s:wintype = 'floating'
@@ -14,38 +14,39 @@ elseif has('textprop') && has('patch-8.1.1522')
   let s:wintype = 'popup'
 endif
 
-let s:player = get(g:, 'translator_default_player', '')
+let s:default_player = get(g:, 'translator_default_player', '')
+let s:available_player = ''
 
 function! translator#ui#find_player() abort
-  let s:player = get(g:, 'translator_default_player', '')
-  if !empty(s:player) | return | endif
+  " use sound_playfile/libcanberra instead?
+  let s:default_player = get(g:, 'translator_default_player', '')
+  if !empty(s:default_player) | return s:default_player | endif
+  if !empty(s:available_player) | return s:available_player | endif
   let players = [
     \ 'mpv --quiet',
     \ 'mpg123 -q',
     \ ]
   for player in players
-    let player_path = exepath(split(player)[0])
-    if !empty(player_path)
-      let s:player = player
-      break
+    if executable(split(player)[0])
+      let s:available_player = player
+      return player
     endif
   endfor
 endfunction
 
 function! translator#ui#play(translations) abort
   if !get(g:, 'translator_tts_enable', 0) | return | endif
-  call translator#ui#find_player()
-
-  let tts_url = ''
+  let url = ''
   for t in a:translations['results']
     if has_key(t, 'tts')
-      let tts_url = t.tts
+      let url = t.tts
       break
     endif
   endfor
-  if empty(tts_url) | return | endif
+  if empty(url) | return | endif
 
-  let cmd = s:player . ' ' . tts_url
+  let player = translator#ui#find_player()
+  let cmd = player . ' ' . url
   if has('nvim')
     function! s:on_stdout_nvim(channel_id, data, name) abort
     endfunction
@@ -115,6 +116,7 @@ function! translator#ui#window(translations) abort
 
     augroup translator_close
       autocmd!
+      autocmd WinLeave,CmdlineEnter <buffer> call s:close_translator_window()
       autocmd CursorMoved,CursorMovedI,InsertEnter,BufLeave <buffer> call s:close_translator_window()
       execute 'autocmd BufWipeout,BufDelete <buffer=' . translator_bufnr . '> call s:close_translator_window()'
     augroup END
@@ -133,7 +135,8 @@ function! translator#ui#window(translations) abort
       \ 'maxwidth': width,
       \ 'minwidth': width,
       \ 'maxheight': height,
-      \ 'minheight': height
+      \ 'minheight': height,
+      \ 'filter': function('s:popup_filter'),
       \ }
     if !empty(g:translator_window_borderchars)
       let options.borderchars = g:translator_window_borderchars
@@ -153,6 +156,14 @@ function! translator#ui#window(translations) abort
     call setbufvar(bufnr, '&foldcolumn', 0)
     call setwinvar(winid, '&conceallevel', 3)
     call setwinvar(winid, '&wincolor', 'TranslatorNF')
+
+    let s:translator_winid = winid
+    augroup translator_close
+      autocmd!
+      autocmd WinLeave <buffer> call popup_close(s:translator_winid)
+      autocmd CmdlineEnter <buffer> call popup_close(s:translator_winid)
+      " autocmd WinLeave,CmdlineEnter <buffer> call s:close_translator_window()
+    augroup END
   else
     let curr_pos = getpos('.')
     execute 'noswapfile bo pedit!'
@@ -255,4 +266,19 @@ function! s:close_translator_window() abort
   if exists('#translator_close')
     autocmd! translator_close *
   endif
+endfunction
+
+
+" Filter for popup window
+function! s:popup_filter(winid, key) abort
+  if a:key ==# "\<c-k>"
+    call win_execute(a:winid, "normal! \<c-y>")
+    return v:true
+  elseif a:key ==# "\<c-j>"
+    call win_execute(a:winid, "normal! \<c-e>")
+    return v:true
+  elseif a:key ==# 'q' || a:key ==# 'x'
+    return popup_filter_menu(a:winid, 'x')
+  endif
+  return v:false
 endfunction

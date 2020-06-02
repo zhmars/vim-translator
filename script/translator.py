@@ -40,10 +40,11 @@ else:
 if not is_py3:
     from HTMLParser import HTMLParser
 elif sys.version_info[0] == 3 and sys.version_info[1] < 5:
-    #  removed in Python 3.5
+    # The unescape method is deprecated and will be removed in 3.5
     from html.parser import HTMLParser
 else:
     import html
+
 
 class Translation(object):
     translation = {"engine": "", "phonetic": "", "paraphrase": "", "explain": []}
@@ -119,7 +120,7 @@ class BasicTranslator(object):
         try:
             import socks
         except ImportError:
-            sys.stderr.write("pySocks module should be installed\n")
+            sys.stderr.write("PySocks module should be installed\n")
             return None
 
         try:
@@ -161,9 +162,10 @@ class BasicTranslator(object):
         self._trans["explain"] = None  # 详细翻译
         return self._trans
 
-    def html_escape(self, string):
-        #  return string
-        #  https://stackoverflow.com/questions/2087370/decode-html-entities-in-python-string
+    @staticmethod
+    def html_escape(string):
+        # https://stackoverflow.com/questions/2087370/decode-html-entities-in-python-string
+        # https://cn.bing.com/dict/SerpHoverTrans?q=answer
         if not is_py3 or (sys.version_info[0] == 3 and sys.version_info[1] < 5):
             parser = HTMLParser()
             return parser.unescape(string)
@@ -190,7 +192,7 @@ class BaicizhanTranslator(BasicTranslator):
         return self._trans
 
     def get_phonetic(self, obj):
-        return obj["accent"] if "accent" in obj else ""
+        return obj["accent"].split("/")[1] if "accent" in obj else ""
 
     def get_explain(self, obj):
         return ["; ".join(obj["mean_cn"].split("\n"))] if "mean_cn" in obj else []
@@ -537,7 +539,7 @@ class QXTranslator(BasicTranslator):
 
     def translate(self, sl, tl, text, options=None):
         text = text if is_py3 else text.decode('utf-8')
-        if re.match("^[a-zA-Z0-9]+.*", text):
+        if re.match(r"^[a-zA-Z0-9]", text):
             return
         req = {}
         req["wubi_key"] = text[:6] if len(text) > 6 else text
