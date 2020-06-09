@@ -192,7 +192,7 @@ class BaicizhanTranslator(BasicTranslator):
         return self._trans
 
     def get_phonetic(self, obj):
-        return obj["accent"].split("/")[1] if "accent" in obj else ""
+        return obj["accent"].replace('/', '') if "accent" in obj else ""
 
     def get_explain(self, obj):
         return ["; ".join(obj["mean_cn"].split("\n"))] if "mean_cn" in obj else []
@@ -317,6 +317,35 @@ class ICibaTranslator(BasicTranslator):
         super(ICibaTranslator, self).__init__(name)
 
     def translate(self, sl, tl, text, options=None):
+        # 每日一句 API: http://open.iciba.com/dsapi/
+        url = 'http://dict-co.iciba.com/api/dictionary.php'
+        # key = '3BE8E8ACA43FDA088E52EC05FA8FA203'
+        # key = 'D191EBD014295E913574E1EAF8E06666'
+        # key = 'E5F04B2930821D0BC354E4E832DBB292'
+        key = '7558F47B1AC36021E67286D3FEBEFEEF'
+        type = 'json'
+
+        req = {}
+        req['key'] = key
+        req['type'] = type
+        req['w'] = url_quote(text.lower())
+        r = self.http_get(url, req, None)
+        if not r:
+            return
+        resp = json.loads(r)
+        if not resp:
+            return
+        if 'symbols' not in resp:
+            return
+
+        obj = resp['symbols'][0]
+        # self._trans['paraphrase'] = self.get_paraphrase(obj)
+        self._trans['phonetic'] = self.get_phonetic(obj)
+        self._trans['explain'] = self.get_explain(obj)
+        self._trans['tts'] = self.get_tts(obj)
+        return self._trans
+
+    def translate_leacy(self, sl, tl, text, options=None):
         url = "http://www.iciba.com/index.php"
         req = {}
         req["a"] = "getWordMean"
@@ -346,6 +375,8 @@ class ICibaTranslator(BasicTranslator):
         return tts if tts else obj.get('ph_tts_mp3_bk', '')
 
     def get_paraphrase(self, obj):
+        if "parts" not in obj:
+            return ""
         return obj["parts"][0]["means"][0]
 
     def get_phonetic(self, obj):
@@ -353,10 +384,12 @@ class ICibaTranslator(BasicTranslator):
         return obj['ph_am'] if obj.get('ph_am', '') else obj.get('ph_en', '')
 
     def get_explain(self, obj):
+        if "parts" not in obj:
+            return ""
         parts = obj["parts"]
         explains = []
         for part in parts:
-            explains.append(part["part"] + ", ".join(part["means"]))
+            explains.append(part["part"] + " " + ", ".join(part["means"]))
         return explains
 
 
@@ -534,7 +567,7 @@ class SdcvShell(BasicTranslator):
 
 class QXTranslator(BasicTranslator):
     def __init__(self, name="qx(wubi)"):
-        self.url = "http://m.4qx.net/m/wubi_results.php"
+        self.url = "http://www.4qx.net/WuBi_Results.php"
         super(QXTranslator, self).__init__(name)
 
     def translate(self, sl, tl, text, options=None):
@@ -543,7 +576,7 @@ class QXTranslator(BasicTranslator):
             return
         req = {}
         req["wubi_key"] = text[:6] if len(text) > 6 else text
-        resp = self.http_post(self.url, req)
+        resp = self.http_get(self.url, req)
         if resp:
             self._trans["phonetic"] = self.get_phonetic(resp)
             self._trans["explain"] = self.get_explain(resp)
@@ -556,7 +589,7 @@ class QXTranslator(BasicTranslator):
 
     def get_explain(self, html):
         html = html if is_py3 else html.encode('utf-8')
-        m1 = re.findall(r'编码查询：<a href="dictionary_results.php\?dictionary_key=.*?">(.*?)</a>', html)
+        m1 = re.findall(r'<a href="Dictionary_Results.php\?dictionary_key=.*?">(.*?)</a>', html)
         m2 = re.findall(r'全码：<span>(.*?)</span>', html)
         explains = []
         explains.extend(' '.join(item) for item in zip(m1, m2))
@@ -634,7 +667,8 @@ def main():
             translation["results"].append(results[key])
 
     if args.debug:
-        #  python translator.py --text 'intentional' --engines bing iciba --target_lang zh --source_lang auto --debug
+        #  python translator.py --text 汉语 --engines qx --target_lang zh --source_lang auto --debug
+        #  python translator.py --text intentional --engines bing --target_lang zh --source_lang auto --debug
         print(json.dumps(translation, indent=2, ensure_ascii=False))
     else:
         sys.stdout.write(json.dumps(translation))
